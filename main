@@ -1,0 +1,253 @@
+###  一、 任务描述
+​
+蜜罐是一种软件应用系统，用来称当入侵诱饵，引诱黑客前来攻击。攻击者入侵后，通过监测与分析，就可以知道他是如何入侵的，随时了解针对组织服务器发动的最新的攻击和漏洞。 当多个蜜罐被网络连接在一起时模拟一个大型网络，并利用其中一部分主机吸引黑客入侵，通过监测、观察入侵过程，一方面调查入侵者的来源，另一方面考察用于防护的安全措施是否有效。这种由多个蜜罐组成的模拟网络就称为蜜网。
+
+###  二、 任务目标
+​
+利用honeyd搭建低交互式伪系统蜜罐蜜网，理解原理
+​
+###  三、 任务环境
+​
+ubuntu18.04.3 
+https://github.com/hehekun/cve-/blob/master/environment/ubuntu-16.04.3-desktop-amd64.iso.torrent
+​
+###  四、 任务实施
+​
+1.1 环境配置
+    我们要搭建的是一个低交互式伪系统蜜罐
+
+    虚拟机环境：
+    https://github.com/hehekun/cve-/blob/master/environment/ubuntu-16.04.3-desktop-amd64.iso.torrent
+    安装后配置密码
+    sudo -i
+    输入安装时设置的密码
+    passwd
+    输入两遍root密码
+    这样我们就设置好了root密码
+
+    虚拟机在这里其实充当的是我们的真实主机
+    而在虚拟机上配置的honeyd才相当于是我们的伪系统
+
+    cd /etc/apt 
+    gedit source.list
+    将里面替换为
+    deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ xenial main restricted universe multiverse
+    # deb-src https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ xenial main restricted universe multiverse
+    deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ xenial-updates main restricted universe multiverse
+    # deb-src https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ xenial-updates main restricted universe multiverse
+    deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ xenial-backports main restricted universe multiverse
+    # deb-src https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ xenial-backports main restricted universe multiverse
+    deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ xenial-security main restricted universe multiverse
+    # deb-src https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ xenial-security main restricted universe multiverse
+    保存a'p't
+    执行 apt-get update
+    apt-get upgrade
+    更新成功
+    把自己的libc.so.6复制到 /usr/lib/里面
+    apt-get install gcc
+    apt-get install build-essential 
+    apt-get install g++
+    把
+
+    (1)Libdnet:是一个提供了跨平台的网络相关 API的函数库，包含 arp 缓存，路由表查询。IP 包及物理帧的传输等。
+    安装过程:
+    wget http://jaist.dl.sourceforge.net/sourceforge/libdnet/libdnet-1.11.tar.gz
+    tar -zxvf libdnet-1.11.tar.gz    解压缩
+    cd libdnet-1.11 进入文件夹
+    ./configure    检查安装环境
+    make
+    su    进root
+    make install    安装
+
+    (2)Libevent:是一个非同步事件通知的函数库。通过使用libevent，开发者能够设定某些事件发生时所运行的函数，能够取代以往程序所使用的循环
+    安装过程：
+    wget https://github.com/downloads/libevent/libevent/libevent-1.4.14b-stable.tar.gz  获得安装包
+    tar -zxvf libevent-1.4.14b-stable.tar.gz     解压缩
+    cd libevent-1.4.14b-stable 进入文件夹
+    ./configure    检查安装环境
+    make
+    su    进root
+    make install    安装
+
+    (3)zlib:apt-get install zlib1g.dev
+
+    (4)Arpd工具:arpd执行在与honeyd同样的系统上。是honeyd众多协作工具中最重要的一个。Arpd工作时监视局域网内的流量。并通过查看honeyd系统的ARP表推断其他系统的活动与否。
+    wget http://www.citi.umich.edu/u/provos/honeyd/arpd-0.2.tar.gz
+    安装过程同上
+    在make之前需要在arpd.c里添加 
+    #define __FUNCTION__ ""
+
+    打开 /etc目录下的文件ld.so.conf ，添加两行
+    /usr/local/lib
+    /usr/lib
+
+
+    (5)Libpcap:是一个数据包捕获（PacketSniffing）的函数库，大多数网络软件都以它为基础；
+    apt-get install flex bison
+    wget http://www.tcpdump.org/release/libpcap-1.3.0.tar.gz
+    tar -zxvf libpcap-1.3.0.tar.gz
+    cd libpcap-1.3.0
+    ./configure    检查安装环境
+    make
+    su    进root
+    make install    安装
+
+1.2 honeyd配置
+    (1)honeyd的安装
+    apt-get install libreadline-dev
+    wget http://www.honeyd.org/uploads/honeyd-1.5c.tar.gz
+    ./configure
+    make
+    sudo make install
+
+    可能会遇到的问题:configure: error: Couldn't figure out how to access libc
+    解决方法就是把自己的libc.so.6复制到 /usr/lib/里面
+    由于每个机器上的位置都不一样,麻烦大家自己找一下了
+
+    /usr/local/lib/libpcap.so: undefined reference to `pcap_parse'
+    如果在make的时候出现这个问题
+    就需要我们进到libpcap目录里面，make clean
+    然后将libpcap重新./configure 
+    make 
+    make install 
+    
+    猜测原因应该是由于libc.so.6的变动导致的config变动
+
+2.1 创建蜜罐
+    (1)利用honeyd部署蜜罐
+    在局域网中选择一个未被使用的IP地址。启动arpd(此处选择的192.168.28.133，便于后面虚拟Linux主机)
+    实际上此处arpd起的是一个虚拟目标ip的作用。
+    arpd 192.168.28.133
+    他的原理就是利用arp协议来将虚拟ip的MAC地址指定到自己，从而达到虚拟ip的功能。
+
+
+    然后我们创建一个简单的honeyd.conf文件来作为honeyd使用时候的配置文件，写入
+    create linux    
+    set linux personality "Linux 2.4.20"    
+    set linux default tcp action open 
+    add linux tcp port 21 open     
+    add linux tcp port 80 "test.sh"
+
+    bind 192.168.29.1 linux      
+
+    这段话的意思是我们创建了一个叫linux的虚拟主机，设置名称，默认tpc打开，并打开21，80端口作为tcp端口，将80端口的操作绑定test.sh
+
+    honeyd -d -f /home/hehehe/honeyd/honeyd.conf 192.168.28.133
+
+    (关闭的时候使用ctrl+z，不要用其他的打断按键，不然容易出现一些很奇葩的问题)
+
+    (2)提供攻击接口
+    接着我们写一个test.sh用来给攻击者提供接口(虚假网页)
+    #!/bin/sh
+    if [ "1" = "1" ] ;then
+        cat << _eof_
+    HTTP/1.1 200 OK
+    Date:Thu Feb 14 21:54:51 CST 2019
+    Server:king Server/0.0.1;charset=UTF-8
+    Content-type:text/html
+
+    <html>
+    <body>
+    <h2>register</h2>
+                                        <h3>please input id and passswd and email</h3>
+                                        <form name="reg" action="192.168.28.133:81" method="POST">
+                                        id:<br>
+                                        <input type="text" id="id" name="id">
+                                        <br>
+                                        password:<br>
+                                        <input type="text" name="password">
+                                        <br>
+                                        email:<br>
+                                        <input type="text" name="email">
+                                        <br>
+                                        <input type="submit" value="Submit" >
+                                        </form> 
+                                 
+                                       
+                                        <h2>login</h2>
+                                        <h3>please input id and passswd and email</h3>
+                                        <form action="192.168.28.133:82" method="POST">
+                                        id:<br>
+                                        <input type="text" name="id">
+                                        <br>
+                                        password:<br>
+                                        <input type="text" name="password">
+                                        <br>
+                                        <br>
+                                        <input type="submit" value="Submit">
+                                        </form> 
+    </body>
+    </html>
+    _eof_
+        exit 0
+    fi
+
+    该shell为访问者返回了一个带有注册登陆功能的页面
+    并且将访问者的注册请求重定向到81端口  
+    将访问者的登陆请求重定向到82端口
+
+    honeyd -d -f /home/hehehe/honeyd/honeyd.conf
+    如果出现 can't find libdnet.1
+    就加上这一句 ln -s   /usr/local/lib/libdnet.1  /usr/lib/libdnet.1
+
+    我们就可以在这两个端口上部署一些代理进行抓包解包，分析传输过来的数据包是否带有攻击。
+    如此，我们就创建了一个最简单的蜜罐
+
+    (3)抓包分析
+
+    按理说实际上arpd+honeyd已经可以监视各个虚拟主机的状态并且保存日志文件了，但是，为了更好的分析攻击数据
+    我们可以利用tshark抓包来分析
+    apt install tshark
+    tshark -i ens3 -n -f 'tcp port 80' > catlog
+    抓取所有80端口的数据包，保存到catchkog里面
+
+3.1 创建蜜网
+    那么单独创建一个蜜罐的流程大家已经清楚了
+    创建蜜网无非就是搭建网络拓扑，将蜜罐部署到网络拓扑里，以此来获取攻击数据并且保护内网
+
+    我们可以简单的利用honeyd的配置来达到这一点
+    (1)创建网络拓扑结构
+
+    还记得那个honeyd.conf吗?没错，我们要修改里面的内容
+    create router   
+    set router personality "Cisco 7206 running IOS 11.1(24)" 
+
+    create linux        
+    set linux personality "Linux 2.4.20"
+    set linux default tcp action open   
+    add linux tcp port 21 open     
+    add linux tcp port 80 "sh /home/hehehe/honeyd/test.sh"
+
+    route entry 192.168.28.135 network 192.168.28.132/30
+    route 192.168.28.135 link 192.168.28.132/30
+
+    bind 192.168.28.135 router
+    bind 192.168.28.133 linux     
+
+    由于避免与公司的网络拓扑冲突，我制作了一个很小的网络拓扑
+    (事实告诉我们一定要在一个简单的网络环境里搭建蜜网，天知道我经历了多少次ip冲突，并且honeyd不会告诉你冲突
+    先是创建了一个 虚拟 router(路由器) 的模板 然后将他绑在 192.168.28.135
+    然后我们将192.168.28.135设为了192.168.28.132/30 这个网段的入口
+    下面的link是代表可以直接访问的意思
+    
+    如此，蜜网就也搭建完毕了
+    当然，你可以搭建的更复杂一些
+    bind 192.168.0.100 router
+    bind 192.168.1.100 router
+
+    route entry 192.168.0.100 network 192.168.0.0/16
+    route 192.168.0.100 link 192.168.0.0/24
+
+    route 192.168.0.100 add net 192.168.1.0/24 192.168.1.100        
+    /向192.168.0.100指定了192.168.1.0/24这个网段的入口为192.168.1.100
+    route 192.168.1.100 link 192.168.1.0/24
+
+    如此，我们就搭建了一个双层虚拟网络，
+    第一层入口192.168.0.100 网段192.168.0.0/16 可以直接访问192.168.0.0/24
+    第二层入口192.168.1.100 网段192.168.1.0/24 可以直接访问192.168.1.0/24
+
+###  五、 任务总结
+    蜜罐与蜜网，总结上来讲就是一个利用虚拟网络拓扑来进行攻击信息收集的过程。
+    他的优点就是  易于搭建，虚拟程度高，对实际网络影响小
+    但同时他的缺点就是  容易与真实网络冲突(当然，对实际网络没有影响，但是你的虚拟拓扑完全没用了就，除非你搭在网关上) 对主机负载高 虚拟服务设置复杂
+
